@@ -2,10 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>3D Hunger Games Multiplayer (Locked Mode)</title>
+<title>3D Hunger Games Multiplayer (FP Movement)</title>
 <style>
-  body { margin: 0; overflow: hidden; }
-  canvas { display: block; }
+  body { margin:0; overflow:hidden; cursor: none; }
+  canvas { display:block; }
 </style>
 </head>
 <body>
@@ -15,7 +15,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js";
 import { getDatabase, ref, set, onValue, onDisconnect } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-database.js";
 
-// TODO: Replace with your Firebase config
+// Firebase Config (Locked Mode)
 const firebaseConfig = {
     apiKey: "AIzaSyC7AS5TZTnjwDQlqJntJe2I5PcTuLO506E",
     authDomain: "hungergames-1f808.firebaseapp.com",
@@ -30,48 +30,70 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-// ----- THREE.JS SETUP -----
+// ----- THREE.JS -----
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
 
 const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xa0a0a0);
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
 const renderer = new THREE.WebGLRenderer();
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
 // Floor
-const floorGeometry = new THREE.PlaneGeometry(100,100);
-const floorMaterial = new THREE.MeshBasicMaterial({color: 0x228B22});
-const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+const floorGeo = new THREE.PlaneGeometry(200,200);
+const floorMat = new THREE.MeshBasicMaterial({color:0x228B22});
+const floor = new THREE.Mesh(floorGeo, floorMat);
 floor.rotation.x = -Math.PI/2;
 scene.add(floor);
 
-// ----- PLAYER SETUP -----
-const otherPlayers = {};
+// ----- PLAYER -----
 const playerId = 'player_' + Date.now() + '_' + Math.floor(Math.random()*1000);
-let myPlayer = { x: 0, y: 0, z: 0 };
-
-// My cube
-const myCubeGeometry = new THREE.BoxGeometry(1,2,1);
-const myCubeMaterial = new THREE.MeshBasicMaterial({color: 0x0000ff});
-const myCube = new THREE.Mesh(myCubeGeometry, myCubeMaterial);
-scene.add(myCube);
-
-// Camera
-camera.position.set(0,5,10);
-camera.lookAt(myCube.position);
-
-// Movement
-const keys = {};
-document.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
-document.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
-
-// ----- FIREBASE FUNCTIONS -----
 const playerRef = ref(db, 'players/' + playerId);
 const playersRef = ref(db, 'players');
 
+const otherPlayers = {};
+const myPlayer = {x:0, y:1, z:0};
+
+// My cube
+const myCubeGeo = new THREE.BoxGeometry(1,2,1);
+const myCubeMat = new THREE.MeshBasicMaterial({color:0x0000ff});
+const myCube = new THREE.Mesh(myCubeGeo, myCubeMat);
+scene.add(myCube);
+
+// ----- MOUSE CONTROL -----
+let pitch = 0;
+let yaw = 0;
+let pointerLocked = false;
+
+// Pointer lock for mouse movement
+document.body.addEventListener('click', () => {
+    renderer.domElement.requestPointerLock();
+});
+
+document.addEventListener('pointerlockchange', () => {
+    pointerLocked = document.pointerLockElement === renderer.domElement;
+});
+
+document.addEventListener('mousemove', e => {
+    if (!pointerLocked) return;
+    const sensitivity = 0.002;
+    yaw -= e.movementX * sensitivity;
+    pitch -= e.movementY * sensitivity;
+    pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
+});
+
+// ----- MOVEMENT -----
+let moveForward = false;
+document.addEventListener('keydown', e => {
+    if(e.key.toLowerCase() === 'w') moveForward = true;
+});
+document.addEventListener('keyup', e => {
+    if(e.key.toLowerCase() === 'w') moveForward = false;
+});
+
+// ----- FIREBASE FUNCTIONS -----
 function updateFirebase() {
-    // Send position + timestamp for Locked Mode rules
     set(playerRef, {
         x: myPlayer.x,
         y: myPlayer.y,
@@ -81,55 +103,58 @@ function updateFirebase() {
     onDisconnect(playerRef).remove();
 }
 
-// Listen for all players
-onValue(playersRef, (snapshot) => {
+// Listen for other players
+onValue(playersRef, snapshot => {
     const playersData = snapshot.val() || {};
-    for (const id in playersData) {
-        if (id === playerId) continue;
+    for(const id in playersData){
+        if(id === playerId) continue;
         const data = playersData[id];
-        if (!otherPlayers[id]) {
-            const geometry = new THREE.BoxGeometry(1,2,1);
-            const material = new THREE.MeshBasicMaterial({color: 0xff0000});
-            const mesh = new THREE.Mesh(geometry, material);
+        if(!otherPlayers[id]){
+            const geo = new THREE.BoxGeometry(1,2,1);
+            const mat = new THREE.MeshBasicMaterial({color:0xff0000});
+            const mesh = new THREE.Mesh(geo, mat);
             scene.add(mesh);
             otherPlayers[id] = {mesh};
         }
-        otherPlayers[id].mesh.position.set(data.x, data.y, data.z);
+        otherPlayers[id].mesh.position.set(data.x,data.y,data.z);
     }
-    // Remove disconnected players
-    for (const id in otherPlayers) {
-        if (!playersData[id]) {
+    // Remove disconnected
+    for(const id in otherPlayers){
+        if(!playersData[id]){
             scene.remove(otherPlayers[id].mesh);
             delete otherPlayers[id];
         }
     }
 });
 
-// ----- ANIMATION LOOP -----
-function animate() {
+// ----- ANIMATE -----
+const clock = new THREE.Clock();
+function animate(){
     requestAnimationFrame(animate);
 
-    // Movement
-    if (keys['w']) myPlayer.z -= 0.1;
-    if (keys['s']) myPlayer.z += 0.1;
-    if (keys['a']) myPlayer.x -= 0.1;
-    if (keys['d']) myPlayer.x += 0.1;
+    const delta = clock.getDelta();
+    // Move forward
+    if(moveForward){
+        myPlayer.x += Math.sin(yaw) * 5 * delta;
+        myPlayer.z += Math.cos(yaw) * 5 * delta;
+    }
 
-    myCube.position.set(myPlayer.x, myPlayer.y, myPlayer.z);
+    // Update my cube
+    myCube.position.set(myPlayer.x,myPlayer.y,myPlayer.z);
 
-    // Camera follows
-    camera.position.x = myPlayer.x + 5;
-    camera.position.y = myPlayer.y + 5;
-    camera.position.z = myPlayer.z + 10;
-    camera.lookAt(myCube.position);
+    // Camera
+    camera.position.set(myPlayer.x, myPlayer.y + 1.5, myPlayer.z);
+    const lookDir = new THREE.Vector3(
+        Math.sin(yaw) * Math.cos(pitch),
+        Math.sin(pitch),
+        Math.cos(yaw) * Math.cos(pitch)
+    );
+    camera.lookAt(myPlayer.x + lookDir.x, myPlayer.y + 1.5 + lookDir.y, myPlayer.z + lookDir.z);
 
-    // Update Firebase
     updateFirebase();
-
     renderer.render(scene, camera);
 }
 animate();
-
 </script>
 
 </body>
