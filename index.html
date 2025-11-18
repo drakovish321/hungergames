@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>3D Hunger Games Multiplayer (Locked Mode)</title>
+<style>
+  body { margin: 0; overflow: hidden; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+
+<script type="module">
+// ----- FIREBASE MODULAR SDK -----
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js";
+import { getDatabase, ref, set, onValue, onDisconnect } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-database.js";
+
+// TODO: Replace with your Firebase config
+const firebaseConfig = {
+    apiKey: "AIzaSyC7AS5TZTnjwDQlqJntJe2I5PcTuLO506E",
+    authDomain: "hungergames-1f808.firebaseapp.com",
+    databaseURL: "https://hungergames-1f808-default-rtdb.firebaseio.com",
+    projectId: "hungergames-1f808",
+    storageBucket: "hungergames-1f808.appspot.com",
+    messagingSenderId: "806026839452",
+    appId: "1:806026839452:web:b73ae22cf3e750cfd53459",
+    measurementId: "G-TGYV83N1CY"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+// ----- THREE.JS SETUP -----
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer();
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+// Floor
+const floorGeometry = new THREE.PlaneGeometry(100,100);
+const floorMaterial = new THREE.MeshBasicMaterial({color: 0x228B22});
+const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+floor.rotation.x = -Math.PI/2;
+scene.add(floor);
+
+// ----- PLAYER SETUP -----
+const otherPlayers = {};
+const playerId = 'player_' + Date.now() + '_' + Math.floor(Math.random()*1000);
+let myPlayer = { x: 0, y: 0, z: 0 };
+
+// My cube
+const myCubeGeometry = new THREE.BoxGeometry(1,2,1);
+const myCubeMaterial = new THREE.MeshBasicMaterial({color: 0x0000ff});
+const myCube = new THREE.Mesh(myCubeGeometry, myCubeMaterial);
+scene.add(myCube);
+
+// Camera
+camera.position.set(0,5,10);
+camera.lookAt(myCube.position);
+
+// Movement
+const keys = {};
+document.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
+document.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
+
+// ----- FIREBASE FUNCTIONS -----
+const playerRef = ref(db, 'players/' + playerId);
+const playersRef = ref(db, 'players');
+
+function updateFirebase() {
+    // Send position + timestamp for Locked Mode rules
+    set(playerRef, {
+        x: myPlayer.x,
+        y: myPlayer.y,
+        z: myPlayer.z,
+        timestamp: Date.now()
+    });
+    onDisconnect(playerRef).remove();
+}
+
+// Listen for all players
+onValue(playersRef, (snapshot) => {
+    const playersData = snapshot.val() || {};
+    for (const id in playersData) {
+        if (id === playerId) continue;
+        const data = playersData[id];
+        if (!otherPlayers[id]) {
+            const geometry = new THREE.BoxGeometry(1,2,1);
+            const material = new THREE.MeshBasicMaterial({color: 0xff0000});
+            const mesh = new THREE.Mesh(geometry, material);
+            scene.add(mesh);
+            otherPlayers[id] = {mesh};
+        }
+        otherPlayers[id].mesh.position.set(data.x, data.y, data.z);
+    }
+    // Remove disconnected players
+    for (const id in otherPlayers) {
+        if (!playersData[id]) {
+            scene.remove(otherPlayers[id].mesh);
+            delete otherPlayers[id];
+        }
+    }
+});
+
+// ----- ANIMATION LOOP -----
+function animate() {
+    requestAnimationFrame(animate);
+
+    // Movement
+    if (keys['w']) myPlayer.z -= 0.1;
+    if (keys['s']) myPlayer.z += 0.1;
+    if (keys['a']) myPlayer.x -= 0.1;
+    if (keys['d']) myPlayer.x += 0.1;
+
+    myCube.position.set(myPlayer.x, myPlayer.y, myPlayer.z);
+
+    // Camera follows
+    camera.position.x = myPlayer.x + 5;
+    camera.position.y = myPlayer.y + 5;
+    camera.position.z = myPlayer.z + 10;
+    camera.lookAt(myCube.position);
+
+    // Update Firebase
+    updateFirebase();
+
+    renderer.render(scene, camera);
+}
+animate();
+
+</script>
+
+</body>
+</html>
