@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+ <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -11,7 +11,7 @@
 <body>
 
 <script type="module">
-// ----- FIREBASE MODULAR SDK -----
+// ----- FIREBASE MODULAR SDK -----\n
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js";
 import { getDatabase, ref, set, onValue, onDisconnect } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-database.js";
 
@@ -30,24 +30,72 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-// ----- THREE.JS -----
+// ----- THREE.JS -----\n
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xa0a0a0);
+scene.background = new THREE.Color(0xcce0ff); // Lighter sky blue background
+scene.fog = new THREE.Fog(0xcce0ff, 50, 200); // Add fog for depth
+
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-const renderer = new THREE.WebGLRenderer();
+const renderer = new THREE.WebGLRenderer({ antialias: true }); // Enable anti-aliasing
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true; // Enable shadows
+renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Softer shadows
 document.body.appendChild(renderer.domElement);
+
+// ----- LIGHTS -----\n
+const ambientLight = new THREE.AmbientLight(0x606060); // Soft ambient light
+scene.add(ambientLight);
+
+const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8); // Main light source
+directionalLight.position.set(50, 100, 50);
+directionalLight.castShadow = true; // Light casts shadows
+directionalLight.shadow.mapSize.width = 2048; // High resolution shadows
+directionalLight.shadow.mapSize.height = 2048;
+directionalLight.shadow.camera.near = 0.5;
+directionalLight.shadow.camera.far = 200;
+directionalLight.shadow.camera.left = -100;
+directionalLight.shadow.camera.right = 100;
+directionalLight.shadow.camera.top = 100;
+directionalLight.shadow.camera.bottom = -100;
+scene.add(directionalLight);
+
+// Optional: Helper for directional light shadow camera
+// const helper = new THREE.DirectionalLightHelper(directionalLight, 5);
+// scene.add(helper);
+// const shadowCameraHelper = new THREE.CameraHelper(directionalLight.shadow.camera);
+// scene.add(shadowCameraHelper);
+
 
 // Floor
 const floorGeo = new THREE.PlaneGeometry(200,200);
-const floorMat = new THREE.MeshBasicMaterial({color:0x228B22});
+// Use MeshStandardMaterial for lighting interaction
+const floorMat = new THREE.MeshStandardMaterial({color:0x4CAF50, roughness: 0.8, metalness: 0.1});
 const floor = new THREE.Mesh(floorGeo, floorMat);
 floor.rotation.x = -Math.PI/2;
+floor.receiveShadow = true; // Floor receives shadows
 scene.add(floor);
 
-// ----- PLAYER -----
+// ----- ENVIRONMENT OBSTACLES -----\n
+const obstacleMaterial = new THREE.MeshStandardMaterial({color: 0x808080, roughness: 0.7, metalness: 0.2});
+const obstacleGeometry = new THREE.BoxGeometry(10, 10, 10);
+
+function addObstacle(x, y, z) {
+    const obstacle = new THREE.Mesh(obstacleGeometry, obstacleMaterial);
+    obstacle.position.set(x, y + 5, z); // y + 5 to place it on the floor
+    obstacle.castShadow = true;
+    obstacle.receiveShadow = true;
+    scene.add(obstacle);
+}
+
+addObstacle(20, 0, -30);
+addObstacle(-15, 0, 40);
+addObstacle(30, 0, 10);
+addObstacle(-40, 0, -20);
+
+
+// ----- PLAYER -----\n
 const playerId = 'player_' + Date.now() + '_' + Math.floor(Math.random()*1000);
 const playerRef = ref(db, 'players/' + playerId);
 const playersRef = ref(db, 'players');
@@ -57,11 +105,14 @@ const myPlayer = {x:0, y:1, z:0};
 
 // My cube
 const myCubeGeo = new THREE.BoxGeometry(1,2,1);
-const myCubeMat = new THREE.MeshBasicMaterial({color:0x0000ff});
+// Use MeshStandardMaterial for lighting interaction
+const myCubeMat = new THREE.MeshStandardMaterial({color:0x3F51B5, roughness: 0.5, metalness: 0.1}); // Darker blue
 const myCube = new THREE.Mesh(myCubeGeo, myCubeMat);
+myCube.castShadow = true; // My cube casts shadows
+myCube.receiveShadow = true; // My cube can receive shadows
 scene.add(myCube);
 
-// ----- MOUSE CONTROL -----
+// ----- MOUSE CONTROL -----\n
 let pitch = 0;
 let yaw = 0;
 let pointerLocked = false;
@@ -83,7 +134,7 @@ document.addEventListener('mousemove', e => {
     pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
 });
 
-// ----- MOVEMENT -----
+// ----- MOVEMENT -----\n
 let moveForward = false;
 document.addEventListener('keydown', e => {
     if(e.key.toLowerCase() === 'w') moveForward = true;
@@ -92,7 +143,7 @@ document.addEventListener('keyup', e => {
     if(e.key.toLowerCase() === 'w') moveForward = false;
 });
 
-// ----- FIREBASE FUNCTIONS -----
+// ----- FIREBASE FUNCTIONS -----\n
 function updateFirebase() {
     set(playerRef, {
         x: myPlayer.x,
@@ -111,8 +162,11 @@ onValue(playersRef, snapshot => {
         const data = playersData[id];
         if(!otherPlayers[id]){
             const geo = new THREE.BoxGeometry(1,2,1);
-            const mat = new THREE.MeshBasicMaterial({color:0xff0000});
+            // Use MeshStandardMaterial for lighting interaction
+            const mat = new THREE.MeshStandardMaterial({color:0xF44336, roughness: 0.5, metalness: 0.1}); // Red
             const mesh = new THREE.Mesh(geo, mat);
+            mesh.castShadow = true; // Other players cast shadows
+            mesh.receiveShadow = true; // Other players can receive shadows
             scene.add(mesh);
             otherPlayers[id] = {mesh};
         }
@@ -120,14 +174,14 @@ onValue(playersRef, snapshot => {
     }
     // Remove disconnected
     for(const id in otherPlayers){
-        if(!playersData[id]){
+        if(!playersData[id]){\n
             scene.remove(otherPlayers[id].mesh);
             delete otherPlayers[id];
         }
     }
 });
 
-// ----- ANIMATE -----
+// ----- ANIMATE -----\n
 const clock = new THREE.Clock();
 function animate(){
     requestAnimationFrame(animate);
@@ -144,10 +198,10 @@ function animate(){
 
     // Camera
     camera.position.set(myPlayer.x, myPlayer.y + 1.5, myPlayer.z);
-    const lookDir = new THREE.Vector3(
-        Math.sin(yaw) * Math.cos(pitch),
-        Math.sin(pitch),
-        Math.cos(yaw) * Math.cos(pitch)
+    const lookDir = new THREE.Vector3(\n
+        Math.sin(yaw) * Math.cos(pitch),\n
+        Math.sin(pitch),\n
+        Math.cos(yaw) * Math.cos(pitch)\n
     );
     camera.lookAt(myPlayer.x + lookDir.x, myPlayer.y + 1.5 + lookDir.y, myPlayer.z + lookDir.z);
 
@@ -155,6 +209,13 @@ function animate(){
     renderer.render(scene, camera);
 }
 animate();
+
+// Handle window resize
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
 </script>
 
 </body>
