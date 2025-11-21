@@ -8,7 +8,8 @@
   body { margin: 0; overflow: hidden; background: black; cursor: none; }
   #crosshair {
     position: absolute;
-    top: 50%; left: 50%;
+    top: 50%;
+    left: 50%;
     width: 20px; height: 20px;
     margin-left: -10px; margin-top: -10px;
     pointer-events: none;
@@ -62,6 +63,10 @@
     align-items: center;
     gap: 10px;
     padding: 0 5px;
+    color: white;
+    font-family: monospace;
+    font-weight: bold;
+    font-size: 18px;
   }
   #healthBar {
     height: 100%;
@@ -71,56 +76,12 @@
     flex-grow: 1;
     border-radius: 3px;
   }
-  /* Overlay menu styles */
-  #menuOverlay {
-    position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0,0,0,0.9);
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    z-index: 100;
-    font-family: sans-serif;
-    color: white;
-  }
-  #menuOverlay button {
-    background: #222;
-    border: 2px solid white;
-    color: white;
-    font-size: 24px;
-    padding: 15px 40px;
-    margin: 12px;
-    cursor: pointer;
-    border-radius: 6px;
-    transition: background 0.3s;
-  }
-  #menuOverlay button:hover {
-    background: #555;
-  }
-  /* Player label style */
-  .player-label {
-    position: absolute;
-    color: white;
-    font-weight: bold;
-    font-family: monospace;
-    pointer-events: none;
-    user-select: none;
-    text-shadow: 0 0 5px black;
-    font-size: 14px;
-  }
 </style>
 </head>
 <body>
-
-<div id="menuOverlay">
-  <button id="mockingjayBtn">Mockingjay Mode</button>
-  <button id="quickplayBtn">Quickplay</button>
-</div>
-
-<div id="crosshair" style="display:none;"></div>
-<div id="hotbar" style="display:none;"></div>
-<div id="healthBarContainer" style="display:none;">
+<div id="crosshair"></div>
+<div id="hotbar"></div>
+<div id="healthBarContainer">
   <div id="healthBar"></div>
   <div id="healthNumber">100</div>
 </div>
@@ -171,6 +132,7 @@ function selectSlot(index) {
   }
   selectedSlot = index;
 }
+createHotbar();
 
 let playerHealth = 100;
 const maxHealth = 100;
@@ -192,21 +154,9 @@ const swingDuration = 300;
 let lastTime = performance.now();
 let hitRegisteredThisSwing = false;
 
-let playerSpeed = 400; // Default speed
-
-// Multiplayer variables
-let socket = null;
-let playerId = null;
-let multiplayerMode = null; // will be set on game start
-const otherPlayers = new Map();
-
-let enemies = [];
-let knife;
-
 function init() {
   scene = new THREE.Scene();
 
-  // Skybox
   const loader = new THREE.CubeTextureLoader();
   const skyTexture = loader.load([
     "https://threejs.org/examples/textures/cube/skyboxsun25deg/px.jpg",
@@ -232,7 +182,7 @@ function init() {
   scene.add(sun);
   scene.add(new THREE.AmbientLight(0xffffff, 0.4));
 
-  // Ground
+  // Ground texture placeholder: replace '' with your grass texture URL or path
   const textureLoader = new THREE.TextureLoader();
   const grassTexture = textureLoader.load('data:image/jpeg;base64,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');
   grassTexture.wrapS = grassTexture.wrapT = THREE.RepeatWrapping;
@@ -241,26 +191,58 @@ function init() {
     new THREE.PlaneGeometry(500, 500),
     new THREE.MeshStandardMaterial({map: grassTexture})
   );
-  ground.rotation.x = -Math.PI/2;
+  ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
   scene.add(ground);
 
-  // Create enemies only if mode is set and not quickplay
-  if (multiplayerMode !== 'quickplay') {
-    createEnemy(5, -10);
-    createEnemy(-5, -12);
-    createEnemy(7, -15);
+  enemies = [];
+
+  function createEnemy(x, z) {
+    const enemy = new THREE.Group();
+
+    // Torso
+    const torsoGeo = new THREE.BoxGeometry(0.5, 1, 0.3);
+    const torsoMat = new THREE.MeshStandardMaterial({color: 0x00ff00});
+    const torso = new THREE.Mesh(torsoGeo, torsoMat);
+    torso.position.y = 1;
+    enemy.add(torso);
+
+    // Head
+    const headGeo = new THREE.SphereGeometry(0.2, 8, 8);
+    const headMat = new THREE.MeshStandardMaterial({color: 0x00cc00});
+    const head = new THREE.Mesh(headGeo, headMat);
+    head.position.y = 1.9;
+    enemy.add(head);
+
+    enemy.position.set(x, 0, z);
+    enemy.castShadow = true;
+    enemy.userData = {
+      health: 100,
+      hitsTaken: 0,
+      speed: 1.5,
+      damage: 10,
+      attackRange: 1.5,
+      alive: true,
+      lastAttackTime: 0,
+      attackCooldown: 1000,
+      isFlashing: false,
+      flashTimeout: null
+    };
+
+    scene.add(enemy);
+    enemies.push(enemy);
   }
+
+  createEnemy(5, -10);
+  createEnemy(-5, -12);
+  createEnemy(7, -15);
 
   controls = new THREE.PointerLockControls(camera, document.body);
 
   document.addEventListener('click', () => {
-    if (controls.isLocked === false && gameStarted) {
-      controls.lock();
-    }
+    controls.lock();
   });
 
-  // Knife
   const knifeGeo = new THREE.BoxGeometry(0.1, 0.02, 0.5);
   const knifeMat = new THREE.MeshStandardMaterial({color: 0xaaaaaa});
   knife = new THREE.Mesh(knifeGeo, knifeMat);
@@ -268,7 +250,6 @@ function init() {
   camera.add(knife);
   scene.add(camera);
 
-  // Event listeners
   document.addEventListener("keydown", onKeyDown);
   document.addEventListener("keyup", onKeyUp);
   window.addEventListener("resize", onWindowResize);
@@ -282,126 +263,14 @@ function init() {
   });
 
   window.addEventListener('mousedown', () => {
-    if (selectedSlot === 0 && !swinging && gameStarted) {
+    if (selectedSlot === 0 && !swinging) {
       swinging = true;
       swingProgress = 0;
     }
   });
-
-  // Connect to WebSocket for multiplayer
-  joinGame();
-}
-
-function joinGame() {
-  socket = new WebSocket('ws://localhost:8080'); // Change URL to your server
-
-  socket.onopen = () => {
-    console.log('WebSocket connected');
-  };
-  socket.onmessage = (msg) => {
-    const data = JSON.parse(msg.data);
-    handleWebSocketMessage(data);
-  };
-  socket.onclose = () => {
-    console.log('WebSocket disconnected');
-  };
-}
-
-function handleWebSocketMessage(msg) {
-  if (msg.type === 'assign_id') {
-    playerId = msg.id;
-  } else if (msg.type === 'player_join') {
-    const id = msg.id;
-    if (id !== playerId && !otherPlayers.has(id)) {
-      const mesh = createOtherPlayerMesh(id);
-      otherPlayers.set(id, mesh);
-    }
-  } else if (msg.type === 'player_leave') {
-    const id = msg.id;
-    if (otherPlayers.has(id)) {
-      const player = otherPlayers.get(id);
-      if (player.userData.labelElement) {
-        document.body.removeChild(player.userData.labelElement);
-      }
-      scene.remove(player);
-      otherPlayers.delete(id);
-    }
-  } else if (msg.type === 'player_update') {
-    const {id, data} = msg;
-    if (id !== playerId) {
-      let mesh = otherPlayers.get(id);
-      if (!mesh) {
-        mesh = createOtherPlayerMesh(id);
-        otherPlayers.set(id, mesh);
-      }
-      mesh.position.set(data.x, data.y, data.z);
-      // Optionally update health or other data here
-    }
-  }
-}
-
-function sendPlayerUpdate() {
-  if (socket && socket.readyState === WebSocket.OPEN && playerId) {
-    const pos = controls.getObject().position;
-    socket.send(JSON.stringify({
-      type: 'player_update',
-      data: { x: pos.x, y: pos.y, z: pos.z, health: playerHealth }
-    }));
-  }
-}
-
-function createOtherPlayerMesh(id) {
-  const group = new THREE.Group();
-  const geo = new THREE.BoxGeometry(0.5, 1, 0.3);
-  const mat = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.y = 0.5;
-  group.add(mesh);
-  // Label
-  const label = document.createElement('div');
-  label.className = 'player-label';
-  label.innerText = `Player ${id.slice(-4)}`;
-  document.body.appendChild(label);
-  group.userData = { labelElement: label };
-  scene.add(group);
-  return group;
-}
-
-function animate() {
-  requestAnimationFrame(animate);
-  if (!gameStarted) return;
-
-  const now = performance.now();
-  const delta = (now - lastTime) / 1000;
-  lastTime = now;
-
-  // Movement physics...
-  // (your movement code here)
-
-  // Send position update always
-  sendPlayerUpdate();
-
-  // Animate enemies if any (not present in quickplay)
-  // ...
-
-  // Update labels
-  otherPlayers.forEach((mesh, id) => {
-    if (mesh.userData.labelElement) {
-      const vector = new THREE.Vector3();
-      vector.setFromMatrixPosition(mesh.matrixWorld);
-      vector.project(camera);
-      const x = (vector.x * 0.5 + 0.5) * window.innerWidth;
-      const y = (-vector.y * 0.5 + 0.5) * window.innerHeight;
-      mesh.userData.labelElement.style.transform = `translate(-50%, -50%) translate(${x}px,${y}px)`;
-      mesh.userData.labelElement.style.display = (vector.z < 1) ? 'block' : 'none';
-    }
-  });
-
-  renderer.render(scene, camera);
 }
 
 function onKeyDown(e) {
-  if (!gameStarted) return;
   if (e.code === "KeyW") moveForward = true;
   if (e.code === "KeyS") moveBackward = true;
   if (e.code === "KeyA") moveLeft = true;
@@ -416,7 +285,6 @@ function onKeyDown(e) {
   }
 }
 function onKeyUp(e) {
-  if (!gameStarted) return;
   if (e.code === "KeyW") moveForward = false;
   if (e.code === "KeyS") moveBackward = false;
   if (e.code === "KeyA") moveLeft = false;
@@ -427,16 +295,134 @@ function onKeyUp(e) {
   }
 }
 
-function createEnemy(x, z) {
-  const enemy = new THREE.Group();
-  const geo = new THREE.BoxGeometry(0.5, 1, 0.3);
-  const mat = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.y = 0.5;
-  enemy.add(mesh);
-  enemy.position.set(x, 0, z);
-  scene.add(enemy);
-  enemies.push(enemy);
+function flashEnemy(enemy) {
+  if (enemy.userData.isFlashing) return;
+  enemy.userData.isFlashing = true;
+  const originalColors = [];
+  enemy.children.forEach(child => {
+    if(child.material) {
+      originalColors.push(child.material.color.getHex());
+      child.material.color.set(0xff0000);
+    }
+  });
+  enemy.userData.flashTimeout = setTimeout(() => {
+    enemy.children.forEach((child, i) => {
+      if(child.material) {
+        child.material.color.setHex(originalColors[i]);
+      }
+    });
+    enemy.userData.isFlashing = false;
+  }, 150);
+}
+
+function checkKnifeHit() {
+  if (hitRegisteredThisSwing) return;
+
+  const knifePos = new THREE.Vector3();
+  knife.getWorldPosition(knifePos);
+
+  const knifeDir = new THREE.Vector3(0, 0, -1);
+  knifeDir.applyQuaternion(camera.quaternion);
+
+  for (const enemy of enemies) {
+    if (!enemy.userData.alive) continue;
+
+    const enemyPos = enemy.position.clone();
+    const dist = enemyPos.distanceTo(knifePos);
+
+    if (dist < 2) {
+      const toEnemy = enemyPos.clone().sub(knifePos).normalize();
+      const angle = knifeDir.angleTo(toEnemy);
+      if (angle < Math.PI / 4) {
+        enemy.userData.health -= 20;
+        enemy.userData.hitsTaken++;
+        flashEnemy(enemy);
+
+        if (enemy.userData.health <= 0 || enemy.userData.hitsTaken >= 5) {
+          enemy.userData.alive = false;
+          scene.remove(enemy);
+        }
+
+        hitRegisteredThisSwing = true;
+        break;
+      }
+    }
+  }
+}
+
+function enemyAttack(delta, now) {
+  const playerPos = controls.getObject().position;
+
+  for (const enemy of enemies) {
+    if (!enemy.userData.alive) continue;
+
+    const dir = playerPos.clone().sub(enemy.position).setY(0);
+    const dist = dir.length();
+
+    if (dist > enemy.userData.attackRange) {
+      dir.normalize();
+      enemy.position.add(dir.multiplyScalar(enemy.userData.speed * delta));
+    } else {
+      if (now - enemy.userData.lastAttackTime > enemy.userData.attackCooldown) {
+        playerHealth -= enemy.userData.damage;
+        if (playerHealth < 0) playerHealth = 0;
+        updateHealthBar();
+        enemy.userData.lastAttackTime = now;
+        if (playerHealth === 0) {
+          alert("You died!");
+          window.location.reload();
+        }
+      }
+    }
+  }
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  const now = performance.now();
+  const delta = (now - lastTime) / 1000;
+  lastTime = now;
+
+  velocity.x -= velocity.x * 10 * delta;
+  velocity.z -= velocity.z * 10 * delta;
+  velocity.y -= gravity * delta;
+
+  direction.z = Number(moveForward) - Number(moveBackward);
+  direction.x = Number(moveRight) - Number(moveLeft);
+  direction.normalize();
+
+  if (moveForward || moveBackward) velocity.z -= direction.z * 400 * delta;
+  if (moveLeft || moveRight) velocity.x -= direction.x * 400 * delta;
+
+  controls.moveRight(-velocity.x * delta);
+  controls.moveForward(-velocity.z * delta);
+
+  camera.position.y += velocity.y * delta;
+  if (camera.position.y < (isCrouching ? 0.9 : 1.6)) {
+    velocity.y = 0;
+    camera.position.y = (isCrouching ? 0.9 : 1.6);
+    canJump = true;
+  }
+
+  if (swinging) {
+    swingProgress += delta * (1000 / swingDuration);
+    if (swingProgress >= 1) {
+      swinging = false;
+      swingProgress = 0;
+      knife.rotation.z = 0;
+      hitRegisteredThisSwing = false;
+    } else {
+      const angle = Math.sin(swingProgress * Math.PI) * -Math.PI / 2;
+      knife.rotation.z = angle;
+
+      if (swingProgress > 0.4 && swingProgress < 0.6) checkKnifeHit();
+    }
+  }
+
+  enemyAttack(delta, now);
+
+  renderer.render(scene, camera);
 }
 
 function onWindowResize() {
@@ -445,51 +431,8 @@ function onWindowResize() {
   renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-// game control flags
-let gameStarted = false;
-
-function startGame(mockingjayMode) {
-  multiplayerMode = mockingjayMode ? 'mockingjay' : 'quickplay';
-
-  document.getElementById('menuOverlay').style.display = 'none';
-  document.getElementById('crosshair').style.display = 'block';
-  hotbar.style.display = 'flex';
-  document.getElementById('healthBarContainer').style.display = 'flex';
-  createHotbar();
-
-  if (mockingjayMode) {
-    playerSpeed = 300; // Slower mode
-  } else {
-    playerSpeed = 400;
-  }
-
-  // Clear any existing enemies if switching modes
-  enemies.forEach(enemy => scene.remove(enemy));
-  enemies = [];
-
-  // Create enemies only if not quickplay
-  if (multiplayerMode !== 'quickplay') {
-    createEnemy(5, -10);
-    createEnemy(-5, -12);
-    createEnemy(7, -15);
-  }
-
-  gameStarted = true;
-}
-
-// Button handlers
-document.getElementById('mockingjayBtn').addEventListener('click', () => {
-  startGame(false); // mockingjayMode false means normal mode with enemies
-});
-document.getElementById('quickplayBtn').addEventListener('click', () => {
-  startGame(true); // quickplay mode true means no NPCs, just players
-});
-
-// Initialize once on page load
-multiplayerMode = 'mockingjay'; // default mode before start
 init();
 animate();
-
 </script>
 </body>
 </html>
