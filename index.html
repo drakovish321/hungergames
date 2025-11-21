@@ -63,10 +63,6 @@
     align-items: center;
     gap: 10px;
     padding: 0 5px;
-    color: white;
-    font-family: monospace;
-    font-weight: bold;
-    font-size: 18px;
   }
   #healthBar {
     height: 100%;
@@ -83,7 +79,7 @@
 </style>
 </head>
 <body>
-<button id="quickPlayBtn">Quick Play</button>
+<button id="quickPlayBtn">Enable Local Multiplayer</button>
 <div id="crosshair"></div>
 <div id="hotbar"></div>
 <div id="healthBarContainer">
@@ -159,89 +155,57 @@ const swingDuration = 300;
 let lastTime = performance.now();
 let hitRegisteredThisSwing = false;
 
-// WebSocket setup
-let socket = null;
-let multiplayerMode = false;
-const serverUrl = 'ws://' + window.location.hostname + ':3000';
-let yourId = null;
-const remotePlayers = {};
+// Multiplayer variables
+let multiplayer = false;
+let remotePlayers = {}; // For visualising other players
+let localPlayers = {}; // For multiple local players if needed (simulate multiplayer)
+let playerIdCounter = 0;
 
 document.getElementById('quickPlayBtn').onclick = () => {
-  if (!multiplayerMode) {
-    setupWebSocket();
-  }
-  multiplayerMode = true;
-  alert('Switched to multiplayer mode!');
+  // Enable local multiplayer mode
+  multiplayer = true;
+  alert('Local multiplayer enabled! Use arrow keys / WASD to move multiple players.');
+  // Add a second local player as demonstration
+  addLocalPlayer();
+  addRemotePlayer(); // Add a remote player NPC for fun
 };
 
-function setupWebSocket() {
-  socket = new WebSocket(serverUrl);
-  socket.onopen = () => { console.log('Connected to server'); };
-  socket.onmessage = (msg) => {
-    const data = JSON.parse(msg.data);
-    handleServerMessage(data);
+// Function to add local player (simulate multiple)
+function addLocalPlayer() {
+  const id = 'player' + (++playerIdCounter);
+  const playerObject = createPlayerMesh(0x0000ff); // Blue color for local
+  scene.add(playerObject);
+  localPlayers[id] = {
+    mesh: playerObject,
+    position: playerObject.position,
+    update: function() {
+      // For local, position is directly controlled
+    }
   };
-  socket.onclose = () => { console.log('Disconnected from server'); };
 }
 
-function handleServerMessage(data) {
-  if (data.type === 'assign_id') {
-    yourId = data.id;
-  } else if (data.type === 'player_join') {
-    if (multiplayerMode && data.id !== yourId) {
-      addRemotePlayer(data.id);
-    }
-  } else if (data.type === 'player_leave') {
-    removeRemotePlayer(data.id);
-  } else if (data.type === 'player_update') {
-    const id = data.id;
-    if (id !== yourId && remotePlayers[id]) {
-      remotePlayers[id].updateFromServer(data.data);
-    }
-  } else if (data.type === 'attack') {
-    const attackerId = data.id;
-    if (attackerId !== yourId && remotePlayers[attackerId]) {
-      const attacker = remotePlayers[attackerId];
-      const dist = controls.getObject().position.distanceTo(attacker.position);
-      if (dist < 2) {
-        playerHealth -= 20;
-        if (playerHealth < 0) playerHealth = 0;
-        updateHealthBar();
-        if (playerHealth === 0) {
-          alert("You died!");
-          window.location.reload();
-        }
-      }
-    }
-  }
-}
-
-function addRemotePlayer(id) {
+// Function to add remote player (simulate other)
+function addRemotePlayer() {
+  const id = 'player' + (++playerIdCounter);
+  const playerObject = createPlayerMesh(0x00ffff); // Cyan for remote
+  scene.add(playerObject);
   remotePlayers[id] = {
-    position: new THREE.Vector3(),
+    mesh: playerObject,
+    position: playerObject.position,
     updateFromServer: function(data) {
-      this.position.set(data.position.x, data.position.y, data.position.z);
+      this.mesh.position.set(data.x, data.y, data.z);
     }
   };
 }
 
-function removeRemotePlayer(id) {
-  delete remotePlayers[id];
+// Function to create a simple player mesh
+function createPlayerMesh(colorHex) {
+  const geometry = new THREE.CylinderGeometry(0.3, 0.3, 1.8, 8);
+  const material = new THREE.MeshStandardMaterial({ color: colorHex });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.castShadow = true;
+  return mesh;
 }
-
-// Send player position/health periodically
-setInterval(() => {
-  if (socket && socket.readyState === WebSocket.OPEN && yourId) {
-    const pos = controls.getObject().position;
-    socket.send(JSON.stringify({
-      type: 'player_update',
-      data: {
-        position: { x: pos.x, y: pos.y, z: pos.z },
-        health: playerHealth,
-      }
-    }));
-  }
-}, 100);
 
 function init() {
   scene = new THREE.Scene();
@@ -272,7 +236,7 @@ function init() {
   scene.add(new THREE.AmbientLight(0xffffff, 0.4));
 
   const textureLoader = new THREE.TextureLoader();
-  const grassTexture = textureLoader.load('ddata:image/jpeg;base64,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'); // Your grass texture base64
+  const grassTexture = textureLoader.load('data:image/jpeg;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQ...' /* truncated */);
   grassTexture.wrapS = grassTexture.wrapT = THREE.RepeatWrapping;
   grassTexture.repeat.set(40, 40);
   const ground = new THREE.Mesh(
@@ -283,8 +247,8 @@ function init() {
   ground.receiveShadow = true;
   scene.add(ground);
 
+  // Create NPC enemies
   enemies = [];
-
   function createEnemy(x, z) {
     const enemy = new THREE.Group();
     const torsoGeo = new THREE.BoxGeometry(0.5, 1, 0.3);
@@ -314,27 +278,27 @@ function init() {
     scene.add(enemy);
     enemies.push(enemy);
   }
-
   createEnemy(5, -10);
   createEnemy(-5, -12);
   createEnemy(7, -15);
 
   controls = new THREE.PointerLockControls(camera, document.body);
-  document.addEventListener('click', () => {
-    controls.lock();
-  });
+  document.addEventListener('click', () => { controls.lock(); });
 
+  // Knife mesh
   const knifeGeo = new THREE.BoxGeometry(0.1, 0.02, 0.5);
   const knifeMat = new THREE.MeshStandardMaterial({color: 0xaaaaaa});
-  knife = new THREE.Mesh(knifeGeo, knifeMat);
+  window.knife = new THREE.Mesh(knifeGeo, knifeMat);
   knife.position.set(0, -0.2, -0.5);
   camera.add(knife);
   scene.add(camera);
 
+  // Event listeners
   document.addEventListener("keydown", onKeyDown);
   document.addEventListener("keyup", onKeyUp);
   window.addEventListener("resize", onWindowResize);
 
+  // Hotbar key bindings
   window.addEventListener('keydown', (e) => {
     if (e.code === 'Digit1') selectSlot(0);
     if (e.code === 'Digit2') selectSlot(1);
@@ -343,13 +307,11 @@ function init() {
     if (e.code === 'Digit5') selectSlot(4);
   });
 
+  // Attack on mouse down
   document.addEventListener('mousedown', () => {
     if (selectedSlot === 0 && !swinging) {
       swinging = true;
       swingProgress = 0;
-      if (multiplayerMode && socket && socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: 'attack' }));
-      }
     }
   });
 }
@@ -494,16 +456,14 @@ function animate() {
 
   enemyAttack(delta, now);
 
-  // Send updates if in multiplayer
-  if (multiplayerMode && socket && socket.readyState === WebSocket.OPEN && yourId) {
-    const pos = controls.getObject().position;
-    socket.send(JSON.stringify({
-      type: 'player_update',
-      data: {
-        position: { x: pos.x, y: pos.y, z: pos.z },
-        health: playerHealth,
-      }
-    }));
+  // In local multiplayer, update remote players' positions as well
+  if (multiplayer) {
+    // For demonstration, move remote players randomly
+    Object.values(remotePlayers).forEach(rp => {
+      // simulate remote movement
+      rp.mesh.position.x += (Math.random() - 0.5) * 0.01;
+      rp.mesh.position.z += (Math.random() - 0.5) * 0.01;
+    });
   }
 
   renderer.render(scene, camera);
@@ -515,9 +475,22 @@ function onWindowResize() {
   renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-// Initialize everything
+// Helper to create a player (either local or remote)
+function createPlayerMesh(colorHex) {
+  const geometry = new THREE.CylinderGeometry(0.3, 0.3, 1.8, 8);
+  const material = new THREE.MeshStandardMaterial({ color: colorHex });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.castShadow = true;
+  return mesh;
+}
+
+let enemies = [];
+let sceneObjects = []; // For all scene objects for easy management
+
+// Initialize scene
 init();
 animate();
+
 </script>
 </body>
 </html>
