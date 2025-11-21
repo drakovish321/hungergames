@@ -20,20 +20,18 @@ const wss = new WebSocket.Server({ server });
 let players = {};
 
 wss.on('connection', (ws) => {
-  // Assign a unique ID
-  const id = Date.now() + Math.random();
+  const id = Date.now() + Math.random().toString(36).substr(2, 9);
   players[id] = { x: 0, y: 0, z: 0 };
 
-  // Send initial info about existing players to the new client
+  // Send init message with current players
   ws.send(JSON.stringify({ type: 'init', id, players }));
 
   ws.on('message', (message) => {
-    // Expect JSON with position updates
     const data = JSON.parse(message);
     if (data.type === 'update') {
       players[id] = data.position;
 
-      // Broadcast this update to all other players
+      // Broadcast to others
       wss.clients.forEach(client => {
         if (client !== ws && client.readyState === WebSocket.OPEN) {
           client.send(JSON.stringify({ type: 'update', id, position: data.position }));
@@ -44,7 +42,7 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     delete players[id];
-    // Notify all clients this player disconnected
+    // Notify all clients
     wss.clients.forEach(client => {
       if (client.readyState === WebSocket.OPEN) {
         client.send(JSON.stringify({ type: 'remove', id }));
