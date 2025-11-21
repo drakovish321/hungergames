@@ -79,7 +79,7 @@
 </style>
 </head>
 <body>
-<button id="quickPlayBtn">Enable Local Multiplayer</button>
+<button id="quickPlayBtn">Connect to Multiplayer</button>
 <div id="crosshair"></div>
 <div id="hotbar"></div>
 <div id="healthBarContainer">
@@ -102,7 +102,7 @@ const gravity = 30;
 const hotbar = document.getElementById('hotbar');
 const healthBar = document.getElementById('healthBar');
 const healthNumber = document.getElementById('healthNumber');
-const quickPlayBtn = document.getElementById('quickPlayBtn');
+const connectBtn = document.getElementById('quickPlayBtn');
 
 const slots = [
   { name: 'Knife', item: '🔪' },
@@ -155,50 +155,71 @@ const swingDuration = 300;
 let lastTime = performance.now();
 let hitRegisteredThisSwing = false;
 
-// Multiplayer variables
+// Multiplayer WebSocket variables
+let socket = null;
 let multiplayer = false;
-let remotePlayers = {}; // For visualising other players
-let localPlayers = {}; // For multiple local players if needed (simulate multiplayer)
-let playerIdCounter = 0;
+let remotePlayers = {}; // for remote players
+let localPlayers = {}; // for local simulated players
+let playerId = null;
 
-document.getElementById('quickPlayBtn').onclick = () => {
-  // Enable local multiplayer mode
-  multiplayer = true;
-  alert('Local multiplayer enabled! Use arrow keys / WASD to move multiple players.');
-  // Add a second local player as demonstration
-  addLocalPlayer();
-  addRemotePlayer(); // Add a remote player NPC for fun
+document.getElementById('connectBtn').onclick = () => {
+  // Connect to WebSocket server
+  if (socket !== null) return; // Already connected
+  socket = new WebSocket(`ws://${location.host}`);
+  socket.onmessage = handleServerMessage;
+  socket.onopen = () => { alert('Connected to server!'); };
+  socket.onclose = () => { alert('Disconnected from server'); socket = null; };
+  multiplayer = true; // toggle multiplayer mode
 };
 
-// Function to add local player (simulate multiple)
-function addLocalPlayer() {
-  const id = 'player' + (++playerIdCounter);
-  const playerObject = createPlayerMesh(0x0000ff); // Blue color for local
-  scene.add(playerObject);
-  localPlayers[id] = {
-    mesh: playerObject,
-    position: playerObject.position,
-    update: function() {
-      // For local, position is directly controlled
+// Handle incoming messages from server
+function handleServerMessage(event) {
+  const data = JSON.parse(event.data);
+  if (data.type === 'init') {
+    // assign your id
+    playerId = data.id;
+    // create meshes for existing players
+    for (const [id, pos] of Object.entries(data.players)) {
+      if (id !== playerId) addRemotePlayer(id, pos);
     }
-  };
+  }
+  if (data.type === 'update') {
+    const id = data.id;
+    if (id !== playerId) {
+      if (!remotePlayers[id]) addRemotePlayer(id, data.position);
+      else {
+        remotePlayers[id].mesh.position.set(data.position.x, data.position.y, data.position.z);
+      }
+    }
+  }
+  if (data.type === 'remove') {
+    const id = data.id;
+    if (remotePlayers[id]) {
+      scene.remove(remotePlayers[id].mesh);
+      delete remotePlayers[id];
+    }
+  }
 }
 
-// Function to add remote player (simulate other)
-function addRemotePlayer() {
-  const id = 'player' + (++playerIdCounter);
-  const playerObject = createPlayerMesh(0x00ffff); // Cyan for remote
-  scene.add(playerObject);
-  remotePlayers[id] = {
-    mesh: playerObject,
-    position: playerObject.position,
-    updateFromServer: function(data) {
-      this.mesh.position.set(data.x, data.y, data.z);
-    }
-  };
+// Add remote player (visual)
+function addRemotePlayer(id, pos) {
+  const mesh = createPlayerMesh(0x00ffff); // cyan for remote
+  mesh.position.set(pos.x, pos.y, pos.z);
+  scene.add(mesh);
+  remotePlayers[id] = { mesh };
 }
 
-// Function to create a simple player mesh
+// Send position periodically
+setInterval(() => {
+  if (multiplayer && socket && socket.readyState === WebSocket.OPEN && playerId !== null) {
+    socket.send(JSON.stringify({
+      type: 'update',
+      position: { x: camera.position.x, y: camera.position.y, z: camera.position.z }
+    }));
+  }
+}, 50); // 20 updates/sec
+
+// Create a player mesh
 function createPlayerMesh(colorHex) {
   const geometry = new THREE.CylinderGeometry(0.3, 0.3, 1.8, 8);
   const material = new THREE.MeshStandardMaterial({ color: colorHex });
@@ -207,6 +228,7 @@ function createPlayerMesh(colorHex) {
   return mesh;
 }
 
+// Initialize scene
 function init() {
   scene = new THREE.Scene();
 
@@ -235,21 +257,22 @@ function init() {
   scene.add(sun);
   scene.add(new THREE.AmbientLight(0xffffff, 0.4));
 
+  // Grass texture placeholder (use a small base64 or a real URL)
   const textureLoader = new THREE.TextureLoader();
-  const grassTexture = textureLoader.load('data:image/jpeg;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQ...' /* truncated */);
+  const grassTexture = textureLoader.load('https://images.unsplash.com/photo-1506744038136-46273834b3fb?ixlib=rb-4.0.3&auto=format&fit=crop&w=1950&q=80');
   grassTexture.wrapS = grassTexture.wrapT = THREE.RepeatWrapping;
   grassTexture.repeat.set(40, 40);
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(500, 500),
     new THREE.MeshStandardMaterial({map: grassTexture})
   );
-  ground.rotation.x = -Math.PI / 2;
+  ground.rotation.x = -Math.PI/2;
   ground.receiveShadow = true;
   scene.add(ground);
 
-  // Create NPC enemies
+  // Create some enemies
   enemies = [];
-  function createEnemy(x, z) {
+  function createEnemy(x,z) {
     const enemy = new THREE.Group();
     const torsoGeo = new THREE.BoxGeometry(0.5, 1, 0.3);
     const torsoMat = new THREE.MeshStandardMaterial({color: 0x00ff00});
@@ -285,7 +308,7 @@ function init() {
   controls = new THREE.PointerLockControls(camera, document.body);
   document.addEventListener('click', () => { controls.lock(); });
 
-  // Knife mesh
+  // Knife
   const knifeGeo = new THREE.BoxGeometry(0.1, 0.02, 0.5);
   const knifeMat = new THREE.MeshStandardMaterial({color: 0xaaaaaa});
   window.knife = new THREE.Mesh(knifeGeo, knifeMat);
@@ -307,7 +330,7 @@ function init() {
     if (e.code === 'Digit5') selectSlot(4);
   });
 
-  // Attack on mouse down
+  // Attack on mouse
   document.addEventListener('mousedown', () => {
     if (selectedSlot === 0 && !swinging) {
       swinging = true;
@@ -423,6 +446,7 @@ function animate() {
   velocity.z -= velocity.z * 10 * delta;
   velocity.y -= gravity * delta;
 
+  // Keyboard movement
   direction.z = Number(moveForward) - Number(moveBackward);
   direction.x = Number(moveRight) - Number(moveLeft);
   direction.normalize();
@@ -433,6 +457,7 @@ function animate() {
   controls.moveRight(-velocity.x * delta);
   controls.moveForward(-velocity.z * delta);
 
+  // Gravity
   camera.position.y += velocity.y * delta;
   if (camera.position.y < (isCrouching ? 0.9 : 1.6)) {
     velocity.y = 0;
@@ -440,6 +465,7 @@ function animate() {
     canJump = true;
   }
 
+  // Swing attack animation
   if (swinging) {
     swingProgress += delta * (1000 / swingDuration);
     if (swingProgress >= 1) {
@@ -454,13 +480,12 @@ function animate() {
     }
   }
 
+  // Enemy attack
   enemyAttack(delta, now);
 
-  // In local multiplayer, update remote players' positions as well
+  // In multiplayer, simulate remote players moving randomly (for demo)
   if (multiplayer) {
-    // For demonstration, move remote players randomly
     Object.values(remotePlayers).forEach(rp => {
-      // simulate remote movement
       rp.mesh.position.x += (Math.random() - 0.5) * 0.01;
       rp.mesh.position.z += (Math.random() - 0.5) * 0.01;
     });
@@ -475,7 +500,7 @@ function onWindowResize() {
   renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-// Helper to create a player (either local or remote)
+// Helper: create a player mesh
 function createPlayerMesh(colorHex) {
   const geometry = new THREE.CylinderGeometry(0.3, 0.3, 1.8, 8);
   const material = new THREE.MeshStandardMaterial({ color: colorHex });
@@ -485,12 +510,282 @@ function createPlayerMesh(colorHex) {
 }
 
 let enemies = [];
-let sceneObjects = []; // For all scene objects for easy management
+let sceneObjects = [];
 
-// Initialize scene
+function init() {
+  scene = new THREE.Scene();
+
+  const loader = new THREE.CubeTextureLoader();
+  const skyTexture = loader.load([
+    "https://threejs.org/examples/textures/cube/skyboxsun25deg/px.jpg",
+    "https://threejs.org/examples/textures/cube/skyboxsun25deg/nx.jpg",
+    "https://threejs.org/examples/textures/cube/skyboxsun25deg/py.jpg",
+    "https://threejs.org/examples/textures/cube/skyboxsun25deg/ny.jpg",
+    "https://threejs.org/examples/textures/cube/skyboxsun25deg/pz.jpg",
+    "https://threejs.org/examples/textures/cube/skyboxsun25deg/nz.jpg",
+  ]);
+  scene.background = skyTexture;
+
+  camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+  camera.position.y = 1.6;
+
+  renderer = new THREE.WebGLRenderer({antialias:true});
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.shadowMap.enabled = true;
+  document.body.appendChild(renderer.domElement);
+
+  const sun = new THREE.DirectionalLight(0xffffff, 1.3);
+  sun.position.set(100, 200, 100);
+  sun.castShadow = true;
+  scene.add(sun);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+
+  // Grass texture
+  const textureLoader = new THREE.TextureLoader();
+  const grassTexture = textureLoader.load('https://images.unsplash.com/photo-1506744038136-46273834b3fb?ixlib=rb-4.0.3&auto=format&fit=crop&w=1950&q=80');
+  grassTexture.wrapS = grassTexture.wrapT = THREE.RepeatWrapping;
+  grassTexture.repeat.set(40, 40);
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(500, 500),
+    new THREE.MeshStandardMaterial({map: grassTexture})
+  );
+  ground.rotation.x = -Math.PI/2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  // Create enemies
+  enemies = [];
+  function createEnemy(x,z) {
+    const enemy = new THREE.Group();
+    const torsoGeo = new THREE.BoxGeometry(0.5, 1, 0.3);
+    const torsoMat = new THREE.MeshStandardMaterial({color: 0x00ff00});
+    const torso = new THREE.Mesh(torsoGeo, torsoMat);
+    torso.position.y = 1;
+    enemy.add(torso);
+    const headGeo = new THREE.SphereGeometry(0.2, 8, 8);
+    const headMat = new THREE.MeshStandardMaterial({color: 0x00cc00});
+    const head = new THREE.Mesh(headGeo, headMat);
+    head.position.y = 1.9;
+    enemy.add(head);
+    enemy.position.set(x, 0, z);
+    enemy.castShadow = true;
+    enemy.userData = {
+      health: 100,
+      hitsTaken: 0,
+      speed: 1.5,
+      damage: 10,
+      attackRange: 1.5,
+      alive: true,
+      lastAttackTime: 0,
+      attackCooldown: 1000,
+      isFlashing: false,
+      flashTimeout: null
+    };
+    scene.add(enemy);
+    enemies.push(enemy);
+  }
+  createEnemy(5, -10);
+  createEnemy(-5, -12);
+  createEnemy(7, -15);
+
+  controls = new THREE.PointerLockControls(camera, document.body);
+  document.addEventListener('click', () => { controls.lock(); });
+
+  // Knife
+  const knifeGeo = new THREE.BoxGeometry(0.1, 0.02, 0.5);
+  const knifeMat = new THREE.MeshStandardMaterial({color: 0xaaaaaa});
+  window.knife = new THREE.Mesh(knifeGeo, knifeMat);
+  knife.position.set(0, -0.2, -0.5);
+  camera.add(knife);
+  scene.add(camera);
+
+  // Event listeners
+  document.addEventListener("keydown", onKeyDown);
+  document.addEventListener("keyup", onKeyUp);
+  window.addEventListener("resize", onWindowResize);
+
+  // Hotbar keys
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Digit1') selectSlot(0);
+    if (e.code === 'Digit2') selectSlot(1);
+    if (e.code === 'Digit3') selectSlot(2);
+    if (e.code === 'Digit4') selectSlot(3);
+    if (e.code === 'Digit5') selectSlot(4);
+  });
+
+  // Attack
+  document.addEventListener('mousedown', () => {
+    if (selectedSlot === 0 && !swinging) {
+      swinging = true;
+      swingProgress = 0;
+    }
+  });
+}
+
+function onKeyDown(e) {
+  if (e.code === "KeyW") moveForward = true;
+  if (e.code === "KeyS") moveBackward = true;
+  if (e.code === "KeyA") moveLeft = true;
+  if (e.code === "KeyD") moveRight = true;
+  if (e.code === "Space" && canJump) {
+    velocity.y = 10;
+    canJump = false;
+  }
+  if (e.code === "ShiftLeft" || e.code === "ShiftRight") {
+    isCrouching = true;
+    camera.position.y = 0.9;
+  }
+}
+function onKeyUp(e) {
+  if (e.code === "KeyW") moveForward = false;
+  if (e.code === "KeyS") moveBackward = false;
+  if (e.code === "KeyA") moveLeft = false;
+  if (e.code === "KeyD") moveRight = false;
+  if (e.code === "ShiftLeft" || e.code === "ShiftRight") {
+    isCrouching = false;
+    camera.position.y = 1.6;
+  }
+}
+
+function flashEnemy(enemy) {
+  if (enemy.userData.isFlashing) return;
+  enemy.userData.isFlashing = true;
+  const originalColors = [];
+  enemy.children.forEach(child => {
+    if(child.material) {
+      originalColors.push(child.material.color.getHex());
+      child.material.color.set(0xff0000);
+    }
+  });
+  enemy.userData.flashTimeout = setTimeout(() => {
+    enemy.children.forEach((child, i) => {
+      if(child.material) {
+        child.material.color.setHex(originalColors[i]);
+      }
+    });
+    enemy.userData.isFlashing = false;
+  }, 150);
+}
+
+function checkKnifeHit() {
+  if (hitRegisteredThisSwing) return;
+  const knifePos = new THREE.Vector3();
+  knife.getWorldPosition(knifePos);
+  const knifeDir = new THREE.Vector3(0, 0, -1);
+  knifeDir.applyQuaternion(camera.quaternion);
+  for (const enemy of enemies) {
+    if (!enemy.userData.alive) continue;
+    const enemyPos = enemy.position.clone();
+    const dist = enemyPos.distanceTo(knifePos);
+    if (dist < 2) {
+      const toEnemy = enemyPos.clone().sub(knifePos).normalize();
+      const angle = knifeDir.angleTo(toEnemy);
+      if (angle < Math.PI / 4) {
+        enemy.userData.health -= 20;
+        enemy.userData.hitsTaken++;
+        flashEnemy(enemy);
+        if (enemy.userData.health <= 0 || enemy.userData.hitsTaken >= 5) {
+          enemy.userData.alive = false;
+          scene.remove(enemy);
+        }
+        hitRegisteredThisSwing = true;
+        break;
+      }
+    }
+  }
+}
+
+function enemyAttack(delta, now) {
+  const playerPos = controls.getObject().position;
+  for (const enemy of enemies) {
+    if (!enemy.userData.alive) continue;
+    const dir = playerPos.clone().sub(enemy.position).setY(0);
+    const dist = dir.length();
+    if (dist > enemy.userData.attackRange) {
+      dir.normalize();
+      enemy.position.add(dir.multiplyScalar(enemy.userData.speed * delta));
+    } else {
+      if (now - enemy.userData.lastAttackTime > enemy.userData.attackCooldown) {
+        playerHealth -= enemy.userData.damage;
+        if (playerHealth < 0) playerHealth = 0;
+        updateHealthBar();
+        enemy.userData.lastAttackTime = now;
+        if (playerHealth === 0) {
+          alert("You died!");
+          window.location.reload();
+        }
+      }
+    }
+  }
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  const now = performance.now();
+  const delta = (now - lastTime) / 1000;
+  lastTime = now;
+
+  velocity.x -= velocity.x * 10 * delta;
+  velocity.z -= velocity.z * 10 * delta;
+  velocity.y -= gravity * delta;
+
+  // Keyboard movement
+  direction.z = Number(moveForward) - Number(moveBackward);
+  direction.x = Number(moveRight) - Number(moveLeft);
+  direction.normalize();
+
+  if (moveForward || moveBackward) velocity.z -= direction.z * 400 * delta;
+  if (moveLeft || moveRight) velocity.x -= direction.x * 400 * delta;
+
+  controls.moveRight(-velocity.x * delta);
+  controls.moveForward(-velocity.z * delta);
+
+  // Gravity
+  camera.position.y += velocity.y * delta;
+  if (camera.position.y < (isCrouching ? 0.9 : 1.6)) {
+    velocity.y = 0;
+    camera.position.y = (isCrouching ? 0.9 : 1.6);
+    canJump = true;
+  }
+
+  // Swing attack animation
+  if (swinging) {
+    swingProgress += delta * (1000 / swingDuration);
+    if (swingProgress >= 1) {
+      swinging = false;
+      swingProgress = 0;
+      knife.rotation.z = 0;
+      hitRegisteredThisSwing = false;
+    } else {
+      const angle = Math.sin(swingProgress * Math.PI) * -Math.PI / 2;
+      knife.rotation.z = angle;
+      if (swingProgress > 0.4 && swingProgress < 0.6) checkKnifeHit();
+    }
+  }
+
+  // Enemy attack
+  enemyAttack(delta, now);
+
+  // In multiplayer, simulate remote players moving randomly (for demo)
+  if (multiplayer) {
+    Object.values(remotePlayers).forEach(rp => {
+      rp.mesh.position.x += (Math.random() - 0.5) * 0.01;
+      rp.mesh.position.z += (Math.random() - 0.5) * 0.01;
+    });
+  }
+
+  renderer.render(scene, camera);
+}
+
+function onWindowResize() {
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+// Start everything
 init();
 animate();
-
 </script>
 </body>
 </html>
